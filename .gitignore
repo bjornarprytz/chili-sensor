@@ -1,0 +1,3 @@
+.vscode/**
+# secret config
+arduino_secrets.h
