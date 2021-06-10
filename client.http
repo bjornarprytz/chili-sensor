@@ -1,5 +1,9 @@
-GET http://10.0.0.18/L
+GET http://10.0.0.11/hum
 
 ###
 
-GET http://10.0.0.18/H
+GET http://10.0.0.11/ph
+
+###
+
+GET http://10.0.0.11/ec
