@@ -3,12 +3,18 @@
 #include <WiFiNINA.h>
 #include <DHT.h>
 #include <ArduinoJson.h>
+#include <DFRobot_EC.h>
+#include <EEPROM.h>
 
 #include "arduino_secrets.h"
 ///////please enter your sensitive data in the Secret tab/arduino_secrets.h
 char ssid[] = SECRET_SSID; // your network SSID (name)
 char pass[] = SECRET_PASS; // your network password (use for WPA, or use as key for WEP)
 int keyIndex = 0;          // your network key index number (needed only for WEP)
+
+/// EC
+
+#define EC_PIN A1
 
 /// pH
 
@@ -34,15 +40,18 @@ DHT dht(DHTPIN, DHTTYPE); //   DHT11 DHT21 DHT22
 // Connect pin 4 (on the right) of the sensor to GROUND
 // Connect a 10K resistor from pin 2 (data) to pin 1 (power) of the sensor
 
-#define T_H_COOLDOWN 2000
+#define T_H_COOLDOWN 1000
 #define PH_COOLDOWN 5000
+#define EC_COOLDOWN 2000
 
 float humidity;
-float temperature;
+float temperature = 25;
 int pH;
+float voltage, ecValue;
 
 int status = WL_IDLE_STATUS;
 WiFiServer server(80);
+DFRobot_EC ec;
 
 void setup()
 {
@@ -50,7 +59,9 @@ void setup()
 
     Wire.begin();
 
-    dht.begin();
+    dht.begin(); // Temperature & Humidity
+
+    ec.begin(); // Electrical Conductivity
 
     pinMode(LED_BUILTIN, OUTPUT); // set the LED pin mode
 
@@ -88,7 +99,8 @@ void loop()
 {
     read_ph();
     read_temp_hum();
-    serve(server);
+    read_ec();
+    serve();
 }
 
 unsigned long prevPhReading;
@@ -144,22 +156,47 @@ void read_temp_hum()
     }
 }
 
+unsigned long prevEcReading = 0;
+
+void read_ec()
+{
+    unsigned long timepoint = millis();
+    if (timepoint - prevEcReading < EC_COOLDOWN)
+    {
+        return;
+    }
+
+    prevEcReading = timepoint;
+
+    timepoint = millis();
+    voltage = analogRead(EC_PIN) / 1024.0 * 5000; // read the voltage
+    ecValue = ec.readEC(voltage, temperature);    // convert voltage to EC with temperature compensation
+    Serial.print("temperature:");
+    Serial.print(temperature, 1);
+    Serial.print("^C  EC:");
+    Serial.print(ecValue, 2);
+    Serial.println("ms/cm");
+
+    ec.calibration(voltage, temperature);
+}
+
 /// SERVER
 
-void serve(WiFiServer server)
+void serve()
 {
     WiFiClient client = server.available(); // listen for incoming clients
 
     if (client)
     {                                 // if you get a client,
-        Serial.println("new client"); // print a message out the serial port
-        String currentLine = "";      // make a String to hold incoming data from the client
+        Serial.print("new client: "); // print a message out the serial port
+
+        IPAddress clientIP = client.remoteIP();
+        Serial.println(clientIP);
+        String currentLine = ""; // make a String to hold incoming data from the client
         String response = "";
         while (client.connected())
         { // loop while the client's connected
             currentLine = readLine(client);
-
-            Serial.println(currentLine);
 
             if (currentLine.startsWith("GET /ph"))
             {
@@ -175,7 +212,7 @@ void serve(WiFiServer server)
             }
             else if (currentLine.startsWith("GET /ec"))
             {
-                response = "ec: 1337";
+                response = String(String(ecValue) + "ms/cm");
             }
             else if (currentLine.length() == 0)
             {
@@ -186,7 +223,8 @@ void serve(WiFiServer server)
         }
         // close the connection:
         client.stop();
-        Serial.println("client disconnected");
+        Serial.print(clientIP);
+        Serial.println(" disconnected");
     }
 }
 
